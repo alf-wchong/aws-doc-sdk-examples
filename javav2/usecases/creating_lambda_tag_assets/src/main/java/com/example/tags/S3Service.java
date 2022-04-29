@@ -18,167 +18,168 @@ import software.amazon.awssdk.services.s3.model.GetObjectTaggingResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.LambdaLogger;
+
 import software.amazon.awssdk.services.s3.model.Tagging;
 import software.amazon.awssdk.services.s3.model.Tag;
 import software.amazon.awssdk.services.s3.model.GetObjectTaggingRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectTaggingRequest;
 
-public class S3Service {
+public class S3Service
+{
 
-    private S3Client getClient() {
+    private S3Client getClient()
+    {
 
-        Region region = Region.US_WEST_2;
-        return S3Client.builder()
-                .region(region)
-                .build();
+	Region region = Region.US_EAST_1;
+	return S3Client.builder().region(region).build();
     }
 
-    public byte[] getObjectBytes(String bucketName, String keyName) {
+    public byte[] getObjectBytes(String bucketName, String keyName)
+    {
 
-        S3Client s3 = getClient();
+	S3Client s3 = getClient();
 
-        try {
+	try
+	{
 
-            GetObjectRequest objectRequest = GetObjectRequest
-                    .builder()
-                    .key(keyName)
-                    .bucket(bucketName)
-                    .build();
+	    GetObjectRequest objectRequest = GetObjectRequest.builder().key(keyName).bucket(bucketName).build();
 
-            // Return the byte[] from this object.
-            ResponseBytes<GetObjectResponse> objectBytes = s3.getObjectAsBytes(objectRequest);
-            return objectBytes.asByteArray();
+	    // Return the byte[] from this object.
+	    ResponseBytes<GetObjectResponse> objectBytes = s3.getObjectAsBytes(objectRequest);
+	    return objectBytes.asByteArray();
 
-        } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            System.exit(1);
-        }
-        return null;
+	} catch (S3Exception e)
+	{
+	    System.err.println(e.awsErrorDetails().errorMessage());
+	    System.exit(1);
+	}
+	return null;
     }
 
     // Returns the names of all images in the given bucket.
-    public List<String> listBucketObjects(String bucketName) {
+    public List<String> listBucketObjects(String bucketName)
+    {
 
-        S3Client s3 = getClient();
-        String keyName;
+	S3Client s3 = getClient();
+	String keyName;
 
-        List<String> keys = new ArrayList<>();
+	List<String> keys = new ArrayList<>();
 
-        try {
-            ListObjectsRequest listObjects = ListObjectsRequest
-                    .builder()
-                    .bucket(bucketName)
-                    .build();
+	try
+	{
+	    ListObjectsRequest listObjects = ListObjectsRequest.builder().bucket(bucketName).build();
 
-            ListObjectsResponse res = s3.listObjects(listObjects);
-            List<S3Object> objects = res.contents();
+	    ListObjectsResponse res = s3.listObjects(listObjects);
+	    List<S3Object> objects = res.contents();
 
-            for (S3Object myValue: objects) {
-                keyName = myValue.key();
-                keys.add(keyName);
-            }
-            return keys;
+	    for (S3Object myValue : objects)
+	    {
+		keyName = myValue.key();
+		keys.add(keyName);
+	    }
+	    return keys;
 
-        } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            System.exit(1);
-        }
-        return null;
+	} catch (S3Exception e)
+	{
+	    System.err.println(e.awsErrorDetails().errorMessage());
+	    System.exit(1);
+	}
+	return null;
     }
 
     // tag assets with labels in the given list.
-    public void tagAssets(List myList, String bucketName) {
+    public void tagAssets(Context context, List myList, String bucketName, long lambdaTriggerStart)
+    {
+	LambdaLogger logger = context.getLogger();
 
-        try {
+	try
+	{
 
-            S3Client s3 = getClient();
-            int len = myList.size();
+	    S3Client s3 = getClient();
+	    int len = myList.size();
 
-            String assetName = "";
-            String labelName = "";
-            String labelValue = "";
-
-            // tag all the assets in the list.
-            for (Object o : myList) {
-
-                //Need to get the WorkItem from each list.
-                List innerList = (List) o;
-                for (Object value : innerList) {
-
-                    WorkItem workItem = (WorkItem) value;
-                    assetName = workItem.getKey();
-                    labelName = workItem.getName();
-                    labelValue = workItem.getConfidence();
-                    tagExistingObject(s3, bucketName, assetName, labelName, labelValue);
-                }
-            }
-
-        } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            System.exit(1);
-        }
+	    String assetName = "";
+	    String labelName = "";
+	    String labelValue = "";
+	    logger.log(len+" items in "+bucketName+" to be tagged.");
+	    // tag all the assets in the list.
+	    for (Object o : myList)
+	    {
+		// Need to get the WorkItem from each list.
+		List innerList = (List) o;
+		for (Object value : innerList)
+		{
+		    WorkItem workItem = (WorkItem) value;
+		    assetName = workItem.getKey();
+		    labelName = workItem.getName();
+		    labelValue = workItem.getConfidence();
+		    tagExistingObject(s3, bucketName, assetName, labelName, labelValue);
+		    logger.log("Tagged "+assetName);
+		}
+		logger.log("Tagging "+assetName+" done. Elapsed time:"+(System.currentTimeMillis()-lambdaTriggerStart)+"ms");
+	    }
+	    logger.log("Done FOR loop in S3Service.tagAssets");
+	} catch (S3Exception e)
+	{
+	    System.err.println(e.awsErrorDetails().errorMessage());
+	    System.exit(1);
+	}
     }
 
     // This method tags an existing object.
-    private void tagExistingObject(S3Client s3, String bucketName, String key, String label, String LabelValue) {
+    private void tagExistingObject(S3Client s3, String bucketName, String key, String label, String LabelValue)
+    {
 
-        try {
+	try
+	{
 
-            // First need to get existing tag set; otherwise the existing tags are overwritten.
-            GetObjectTaggingRequest getObjectTaggingRequest = GetObjectTaggingRequest.builder()
-                    .bucket(bucketName)
-                    .key(key)
-                    .build();
+	    // First need to get existing tag set; otherwise the existing tags are overwritten.
+	    GetObjectTaggingRequest getObjectTaggingRequest = GetObjectTaggingRequest.builder().bucket(bucketName).key(key).build();
 
-            GetObjectTaggingResponse response = s3.getObjectTagging(getObjectTaggingRequest);
+	    GetObjectTaggingResponse response = s3.getObjectTagging(getObjectTaggingRequest);
 
-            // Get the existing immutable list - cannot modify this list.
-            List<Tag> existingList = response.tagSet();
-            ArrayList<Tag> newTagList = new ArrayList(new ArrayList<>(existingList));
+	    // Get the existing immutable list - cannot modify this list.
+	    List<Tag> existingList = response.tagSet();
+	    ArrayList<Tag> newTagList = new ArrayList(new ArrayList<>(existingList));
 
-            // Create a new tag.
-            Tag myTag = Tag.builder()
-                    .key(label)
-                    .value(LabelValue)
-                    .build();
+	    // Create a new tag.
+	    Tag myTag = Tag.builder().key(label).value(LabelValue).build();
 
-            // push new tag to list.
-            newTagList.add(myTag);
-            Tagging tagging = Tagging.builder()
-                    .tagSet(newTagList)
-                    .build();
+	    // push new tag to list.
+	    newTagList.add(myTag);
+	    Tagging tagging = Tagging.builder().tagSet(newTagList).build();
 
-            PutObjectTaggingRequest taggingRequest = PutObjectTaggingRequest.builder()
-                    .key(key)
-                    .bucket(bucketName)
-                    .tagging(tagging)
-                    .build();
+	    PutObjectTaggingRequest taggingRequest = PutObjectTaggingRequest.builder().key(key).bucket(bucketName).tagging(tagging).build();
 
-            s3.putObjectTagging(taggingRequest);
-            System.out.println(key + " was tagged with " + label);
+	    s3.putObjectTagging(taggingRequest);
+	    System.out.println(key + " was tagged with " + label);
 
-        } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            System.exit(1);
-        }
+	} catch (S3Exception e)
+	{
+	    System.err.println(e.awsErrorDetails().errorMessage());
+	    System.exit(1);
+	}
     }
 
-    //Delete tags from the given object.
-    public void deleteTagFromObject(String bucketName, String key) {
+    // Delete tags from the given object.
+    public void deleteTagFromObject(String bucketName, String key)
+    {
 
-        try {
+	try
+	{
 
-            DeleteObjectTaggingRequest deleteObjectTaggingRequest = DeleteObjectTaggingRequest.builder()
-                    .key(key)
-                    .bucket(bucketName)
-                    .build();
+	    DeleteObjectTaggingRequest deleteObjectTaggingRequest = DeleteObjectTaggingRequest.builder().key(key).bucket(bucketName).build();
 
-            S3Client s3 = getClient();
-            s3.deleteObjectTagging(deleteObjectTaggingRequest);
+	    S3Client s3 = getClient();
+	    s3.deleteObjectTagging(deleteObjectTaggingRequest);
 
-        } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            System.exit(1);
-        }
+	} catch (S3Exception e)
+	{
+	    System.err.println(e.awsErrorDetails().errorMessage());
+	    System.exit(1);
+	}
     }
 }
